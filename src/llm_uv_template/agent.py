@@ -1,58 +1,48 @@
-"""Minimal pydantic-ai agent skeleton.
+"""Messaging agent backed by a local Ollama model.
 
-This module is intentionally small. It exists to show:
-  * how to declare a typed `Agent` with a Pydantic output schema,
-  * how to register a tool the model can call,
-  * how the model is selected via the ``PYDANTIC_AI_MODEL`` env var so the
-    same code works against OpenAI, Anthropic, Gemini, or any other provider
-    supported by pydantic-ai.
-
-Replace this with your real agent. Keep the test pattern from
-``tests/test_agent.py`` so unit tests never hit a live API.
+The agent reads `OLLAMA_BASE_URL` and `OLLAMA_MODEL` from the environment
+so the same code drives the docker-compose stack (where Ollama runs on
+the host) and local development (`http://localhost:11434/v1`). Tests
+override the model via `agent.override(model=TestModel(...))` so they
+never reach Ollama.
 """
 
 from __future__ import annotations
 
 import os
-from datetime import UTC, datetime
 
-from pydantic import BaseModel, Field
 from pydantic_ai import Agent
+from pydantic_ai.models.openai import OpenAIChatModel
+from pydantic_ai.providers.openai import OpenAIProvider
 
-DEFAULT_MODEL = "openai:gpt-5.2"
+from llm_uv_template.models import GenerierteNachricht
+from llm_uv_template.prompts import SYSTEM_PROMPT
 
-
-class CityInfo(BaseModel):
-    """Structured response describing a city."""
-
-    city: str = Field(description="City name, e.g. 'Chicago'.")
-    country: str = Field(description="ISO country name, e.g. 'United States'.")
-    rationale: str = Field(description="One-sentence explanation of the choice.")
+DEFAULT_OLLAMA_BASE_URL = "http://localhost:11434/v1"
+DEFAULT_OLLAMA_MODEL = "gemma4:31b"
 
 
-def build_agent(model: str | None = None) -> Agent[None, CityInfo]:
-    """Create a configured agent.
+def _resolve_base_url() -> str:
+    return os.getenv("OLLAMA_BASE_URL", DEFAULT_OLLAMA_BASE_URL)
 
-    Args:
-        model: Override the model selector. When ``None``, falls back to
-            ``$PYDANTIC_AI_MODEL`` and finally to :data:`DEFAULT_MODEL`.
 
-    Returns:
-        A pydantic-ai ``Agent`` parameterised on a :class:`CityInfo` output.
+def resolve_model_name() -> str:
+    return os.getenv("OLLAMA_MODEL", DEFAULT_OLLAMA_MODEL)
+
+
+def build_agent(model_name: str | None = None) -> Agent[None, GenerierteNachricht]:
+    """Construct the messaging agent.
+
+    `model_name` overrides the env var. Construction does not call the
+    network; the first call to `agent.run` does.
     """
-    selected = model or os.getenv("PYDANTIC_AI_MODEL") or DEFAULT_MODEL
-    agent: Agent[None, CityInfo] = Agent(
-        selected,
-        output_type=CityInfo,
-        system_prompt=(
-            "You answer geography questions. Always return a CityInfo. "
-            "If unsure, pick the most likely city and say so in `rationale`."
-        ),
+    selected = model_name or resolve_model_name()
+    provider = OpenAIProvider(base_url=_resolve_base_url(), api_key="ollama")
+    model = OpenAIChatModel(model_name=selected, provider=provider)
+
+    agent: Agent[None, GenerierteNachricht] = Agent(
+        model,
+        output_type=GenerierteNachricht,
+        system_prompt=SYSTEM_PROMPT,
     )
-
-    @agent.tool_plain
-    def current_utc_time() -> str:
-        """Return the current UTC time in ISO-8601. Useful when freshness matters."""
-        return datetime.now(UTC).isoformat()
-
     return agent

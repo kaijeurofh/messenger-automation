@@ -1,0 +1,37 @@
+# PoC stack: backend (FastAPI + pydantic-ai) + frontend (nginx static).
+# Ollama runs on the host (RTX 5090). The backend reaches it via the
+# `host.docker.internal` mapping below so this works identically on
+# Linux, macOS, and Windows Docker Desktop.
+#
+# Bring up: docker compose up --build
+# Tear down: docker compose down
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: docker/backend.Dockerfile
+    environment:
+      # Override these via a local .env file if Ollama runs elsewhere.
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434/v1}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-gemma4:31b}
+      CORS_ORIGINS: ${CORS_ORIGINS:-*}
+    ports:
+      - "8000:8000"
+    extra_hosts:
+      # Linux needs this mapping explicitly; on Docker Desktop it's a no-op.
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health').read()"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  frontend:
+    build:
+      context: ./frontend
+    ports:
+      - "8080:80"
+    depends_on:
+      backend:
+        condition: service_started

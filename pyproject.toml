@@ -17,6 +17,10 @@ classifiers = [
 dependencies = [
     "pydantic-ai>=1.0,<2",
     "python-dotenv>=1.0",
+    "fastapi>=0.115,<1",
+    "uvicorn[standard]>=0.32,<1",
+    "faker>=30,<40",
+    "httpx>=0.27,<1",
 ]
 
 [project.scripts]
@@ -83,6 +87,12 @@ select = [
 ignore = [
     "ANN401",  # allow `Any` where it is genuinely needed
     "PLR0913", # too many arguments (agents often take many)
+    "PLR2004", # magic numbers acceptable in synthetic data + UI knobs
+    "S311",    # random.* is fine for synthetic test/demo data
+    "RUF001",  # umlauts and similar non-ASCII are legitimate German content
+    "RUF002",  # likewise for German docstrings
+    "RUF003",  # likewise for German comments
+    "PLC0415", # local imports allowed (FastAPI route handlers, lazy imports)
 ]
 
 [tool.ruff.lint.per-file-ignores]

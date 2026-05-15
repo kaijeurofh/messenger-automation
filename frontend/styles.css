@@ -1,0 +1,67 @@
+/* Small overrides on top of Tailwind utility classes. */
+
+.chat-bubble {
+  background: #ffffff;
+  border-radius: 0.75rem;
+  padding: 0.6rem 0.8rem;
+  box-shadow: 0 1px 1px rgba(0, 0, 0, 0.04);
+  max-width: 95%;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  font-size: 0.92rem;
+  line-height: 1.35;
+}
+
+.chat-bubble .subject {
+  font-weight: 600;
+  color: #0f172a;
+  margin-bottom: 0.25rem;
+  font-size: 0.85rem;
+}
+
+.chat-bubble .meta {
+  margin-top: 0.5rem;
+  font-size: 0.7rem;
+  color: #64748b;
+  display: flex;
+  justify-content: space-between;
+}
+
+.chat-bubble .steps {
+  margin-top: 0.5rem;
+  padding-top: 0.5rem;
+  border-top: 1px dashed #e2e8f0;
+  font-size: 0.8rem;
+  color: #334155;
+}
+
+.chat-bubble .steps ul {
+  margin-top: 0.25rem;
+  padding-left: 1rem;
+  list-style: disc;
+}
+
+.student-row {
+  cursor: pointer;
+  padding: 0.5rem 0.6rem;
+  border-radius: 0.4rem;
+  font-size: 0.9rem;
+}
+
+.student-row:hover {
+  background-color: #f1f5f9;
+}
+
+.student-row.active {
+  background-color: #0f172a;
+  color: white;
+}
+
+.student-row.active .meta {
+  color: #94a3b8;
+}
+
+.student-row .meta {
+  font-size: 0.7rem;
+  color: #64748b;
+}
