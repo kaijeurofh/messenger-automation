@@ -13,11 +13,11 @@ services:
       dockerfile: docker/backend.Dockerfile
     environment:
       # Override these via a local .env file if Ollama runs elsewhere.
-      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434/v1}
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11435/v1}
       OLLAMA_MODEL: ${OLLAMA_MODEL:-gemma4:31b}
       CORS_ORIGINS: ${CORS_ORIGINS:-*}
     ports:
-      - "8000:8000"
+      - "${BACKEND_PORT:-8000}:8000"
     extra_hosts:
       # Linux needs this mapping explicitly; on Docker Desktop it's a no-op.
       - "host.docker.internal:host-gateway"
@@ -31,7 +31,7 @@ services:
     build:
       context: ./frontend
     ports:
-      - "8080:80"
+      - "${FRONTEND_PORT:-8080}:80"
     depends_on:
       backend:
         condition: service_started

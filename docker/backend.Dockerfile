@@ -23,7 +23,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev
 
 ENV PATH="/app/.venv/bin:$PATH" \
-    OLLAMA_BASE_URL=http://host.docker.internal:11434/v1 \
+    OLLAMA_BASE_URL=http://host.docker.internal:11435/v1 \
     OLLAMA_MODEL=gemma4:31b \
     CORS_ORIGINS=*
 

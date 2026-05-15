@@ -106,7 +106,7 @@ def create_app() -> FastAPI:
         return HealthResponse(
             status="ok",
             modell=resolve_model_name(),
-            ollama_base_url=os.getenv("OLLAMA_BASE_URL", "http://localhost:11434/v1"),
+            ollama_base_url=os.getenv("OLLAMA_BASE_URL", "http://localhost:11435/v1"),
         )
 
     @app.get("/api/triggers", response_model=TriggersResponse)

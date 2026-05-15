@@ -2,7 +2,7 @@
 
 The agent reads `OLLAMA_BASE_URL` and `OLLAMA_MODEL` from the environment
 so the same code drives the docker-compose stack (where Ollama runs on
-the host) and local development (`http://localhost:11434/v1`). Tests
+the host) and local development (`http://localhost:11435/v1`). Tests
 override the model via `agent.override(model=TestModel(...))` so they
 never reach Ollama.
 """
@@ -18,7 +18,7 @@ from pydantic_ai.providers.openai import OpenAIProvider
 from llm_uv_template.models import GenerierteNachricht
 from llm_uv_template.prompts import SYSTEM_PROMPT
 
-DEFAULT_OLLAMA_BASE_URL = "http://localhost:11434/v1"
+DEFAULT_OLLAMA_BASE_URL = "http://localhost:11435/v1"
 DEFAULT_OLLAMA_MODEL = "gemma4:31b"
 
 
