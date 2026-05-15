@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import os
 
-from pydantic_ai import Agent
+from pydantic_ai import Agent, NativeOutput
 from pydantic_ai.models.openai import OpenAIChatModel
 from pydantic_ai.providers.openai import OpenAIProvider
 
@@ -19,7 +19,7 @@ from llm_uv_template.models import GenerierteNachricht
 from llm_uv_template.prompts import SYSTEM_PROMPT
 
 DEFAULT_OLLAMA_BASE_URL = "http://localhost:11435/v1"
-DEFAULT_OLLAMA_MODEL = "gemma4:31b"
+DEFAULT_OLLAMA_MODEL = "gemma3:12b"
 
 
 def _resolve_base_url() -> str:
@@ -40,9 +40,12 @@ def build_agent(model_name: str | None = None) -> Agent[None, GenerierteNachrich
     provider = OpenAIProvider(base_url=_resolve_base_url(), api_key="ollama")
     model = OpenAIChatModel(model_name=selected, provider=provider)
 
+    # NativeOutput uses Ollama's JSON-schema constrained decoding instead of
+    # tool-calling, so this works with models like Gemma 3 that don't support
+    # the OpenAI tools API.
     agent: Agent[None, GenerierteNachricht] = Agent(
         model,
-        output_type=GenerierteNachricht,
+        output_type=NativeOutput(GenerierteNachricht),
         system_prompt=SYSTEM_PROMPT,
     )
     return agent

@@ -18,13 +18,16 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-install-project --no-dev
 
 # Copy source and install the project itself.
+# LICENSE and README.md are required by hatchling because pyproject.toml
+# declares `license = { file = "LICENSE" }` and `readme = "README.md"`.
+COPY LICENSE README.md ./
 COPY src ./src
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev
 
 ENV PATH="/app/.venv/bin:$PATH" \
     OLLAMA_BASE_URL=http://host.docker.internal:11435/v1 \
-    OLLAMA_MODEL=gemma4:31b \
+    OLLAMA_MODEL=gemma3:12b \
     CORS_ORIGINS=*
 
 EXPOSE 8000

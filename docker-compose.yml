@@ -14,7 +14,7 @@ services:
     environment:
       # Override these via a local .env file if Ollama runs elsewhere.
       OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11435/v1}
-      OLLAMA_MODEL: ${OLLAMA_MODEL:-gemma4:31b}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-gemma3:12b}
       CORS_ORIGINS: ${CORS_ORIGINS:-*}
     ports:
       - "${BACKEND_PORT:-8000}:8000"
