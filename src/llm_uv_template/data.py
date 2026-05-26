@@ -2,12 +2,19 @@
 
 Two surfaces:
 
-* `FIXED_PROFILES` — five hand-curated students covering distinct
+* `fixed_profiles()` — five hand-curated students covering distinct
   scenarios (study start, exam phase, behind schedule, near completion,
   recently reactivated). Stable IDs so the frontend can deep-link.
 * `generate_studi()` — Faker-backed generator producing additional random
   but internally consistent profiles. Used to stress-test the messaging
   agent against unfamiliar inputs.
+
+Data shape mirrors the EAP export: pro Studi maximal *ein* zuletzt
+abgeschlossenes Modul plus die laut Studienverlaufsplan kommenden Module.
+Keine prozentualen Lernfortschritte und keine vollständige Prüfungs-
+historie — wir bilden bewusst nur ab, was die Fachbetreuung im EAP auch
+wirklich sieht, damit der LLM-Agent keine bereits bestandenen Module
+als Lernziel empfiehlt.
 
 Generation is deterministic when a `seed` is provided so demos and tests
 stay reproducible.
@@ -22,9 +29,9 @@ from faker import Faker
 
 from llm_uv_template.models import (
     CampusAktivitaet,
-    Kursfortschritt,
-    Pruefung,
-    Pruefungsstatus,
+    KommendesModul,
+    LetztesModul,
+    Modulstatus,
     Studi,
 )
 
@@ -36,6 +43,10 @@ _STUDIENGAENGE: tuple[str, ...] = (
     "Master Sales Management",
 )
 
+# Modul-Pools sind als geordnete Studienverlaufspläne zu lesen: vorne
+# steht das, was zuerst belegt wird. Die fixen und generierten Profile
+# greifen darauf zurück, damit "letztes Modul" und "kommende Module"
+# einer plausiblen Reihenfolge folgen.
 _MODULE_POOL: dict[str, tuple[str, ...]] = {
     "Bachelor Wirtschaftspsychologie": (
         "Allgemeine Psychologie",
@@ -96,50 +107,45 @@ def _build_fixed_profile(
     studiengang: str,
     monate_im_studium: int,
     regelstudienzeit: int,
-    fortschritt_kurse: list[tuple[str, int, bool]],
-    abgeschlossene_pruefungen: list[tuple[str, int, Pruefungsstatus, float | None]],
-    naechste_pruefung: tuple[str, int] | None,
+    letztes_modul: tuple[str, int, Modulstatus, float | None] | None,
+    kommende_module: list[tuple[str, int | None, int | None]],
     tage_seit_letztem_login: int,
     logins_letzte_30_tage: int,
 ) -> Studi:
     """Assemble a `Studi` from low-level scenario knobs.
 
     `monate_im_studium` and `tage_seit_letztem_login` are interpreted
-    relative to `today()` so the profiles age naturally.
+    relative to `today()` so the profiles age naturally. Each
+    `kommende_module`-Tupel ist `(name, tage_bis_start, tage_bis_pruefung)` —
+    `None` für Start oder Prüfung, wenn das EAP keinen Termin liefert.
     """
     today = _today()
     studienbeginn = today - timedelta(days=monate_im_studium * 30)
 
-    pruefungen = [
-        Pruefung(
-            modul=modul,
-            datum=today - timedelta(days=tage_zurueck),
-            status=status,
-            note=note,
+    letztes = (
+        LetztesModul(
+            name=letztes_modul[0],
+            abgeschlossen_am=today - timedelta(days=letztes_modul[1]),
+            status=letztes_modul[2],
+            note=letztes_modul[3],
         )
-        for (modul, tage_zurueck, status, note) in abgeschlossene_pruefungen
-    ]
-    naechste = (
-        Pruefung(
-            modul=naechste_pruefung[0],
-            datum=today + timedelta(days=naechste_pruefung[1]),
-            status=Pruefungsstatus.GEPLANT,
-            note=None,
-        )
-        if naechste_pruefung
+        if letztes_modul
         else None
     )
-    kurse = [
-        Kursfortschritt(modul=modul, fortschritt_prozent=pct, abgeschlossen=done)
-        for (modul, pct, done) in fortschritt_kurse
+    kommende = [
+        KommendesModul(
+            name=name,
+            geplanter_start=today + timedelta(days=tage_start) if tage_start is not None else None,
+            geplante_pruefung=(
+                today + timedelta(days=tage_pruefung) if tage_pruefung is not None else None
+            ),
+        )
+        for (name, tage_start, tage_pruefung) in kommende_module
     ]
     aktivitaet = CampusAktivitaet(
         letzter_login=today - timedelta(days=tage_seit_letztem_login),
         logins_letzte_30_tage=logins_letzte_30_tage,
     )
-
-    benotete = [p.note for p in pruefungen if p.note is not None]
-    schnitt = round(sum(benotete) / len(benotete), 2) if benotete else None
 
     return Studi(
         id=student_id,
@@ -149,11 +155,9 @@ def _build_fixed_profile(
         studienbeginn=studienbeginn,
         regelstudienzeit_monate=regelstudienzeit,
         aktueller_monat_im_studium=monate_im_studium,
-        abgeschlossene_pruefungen=pruefungen,
-        naechste_pruefung=naechste,
-        kurse=kurse,
+        letztes_modul=letztes,
+        kommende_module=kommende,
         campus_aktivitaet=aktivitaet,
-        notendurchschnitt=schnitt,
     )
 
 
@@ -167,12 +171,12 @@ def fixed_profiles() -> list[Studi]:
             studiengang="Bachelor Wirtschaftspsychologie",
             monate_im_studium=2,
             regelstudienzeit=48,
-            fortschritt_kurse=[
-                ("Allgemeine Psychologie", 35, False),
-                ("Statistik I", 10, False),
+            letztes_modul=None,
+            kommende_module=[
+                ("Allgemeine Psychologie", 0, 21),
+                ("Statistik I", 30, 60),
+                ("Statistik II", 90, 120),
             ],
-            abgeschlossene_pruefungen=[],
-            naechste_pruefung=("Allgemeine Psychologie", 21),
             tage_seit_letztem_login=1,
             logins_letzte_30_tage=18,
         ),
@@ -183,16 +187,12 @@ def fixed_profiles() -> list[Studi]:
             studiengang="Bachelor Betriebswirtschaft",
             monate_im_studium=18,
             regelstudienzeit=48,
-            fortschritt_kurse=[
-                ("Externes Rechnungswesen", 100, True),
-                ("Internes Rechnungswesen", 80, False),
-                ("Marketing", 65, False),
+            letztes_modul=("Externes Rechnungswesen", 120, Modulstatus.BESTANDEN, 1.7),
+            kommende_module=[
+                ("Internes Rechnungswesen", -30, 7),
+                ("Marketing", 14, 60),
+                ("Investition und Finanzierung", 60, 120),
             ],
-            abgeschlossene_pruefungen=[
-                ("Grundlagen der BWL", 240, Pruefungsstatus.BESTANDEN, 2.3),
-                ("Externes Rechnungswesen", 120, Pruefungsstatus.BESTANDEN, 1.7),
-            ],
-            naechste_pruefung=("Internes Rechnungswesen", 7),
             tage_seit_letztem_login=0,
             logins_letzte_30_tage=24,
         ),
@@ -203,16 +203,12 @@ def fixed_profiles() -> list[Studi]:
             studiengang="Master Wirtschaftsrecht",
             monate_im_studium=20,
             regelstudienzeit=24,
-            fortschritt_kurse=[
-                ("Vertragsrecht", 100, True),
-                ("Gesellschaftsrecht", 40, False),
-                ("Arbeitsrecht", 5, False),
+            letztes_modul=("Gesellschaftsrecht", 60, Modulstatus.NICHT_BESTANDEN, 5.0),
+            kommende_module=[
+                ("Gesellschaftsrecht (Wiederholung)", -15, 35),
+                ("Arbeitsrecht", 14, 90),
+                ("Steuerrecht", 60, 150),
             ],
-            abgeschlossene_pruefungen=[
-                ("Vertragsrecht", 200, Pruefungsstatus.BESTANDEN, 2.7),
-                ("Gesellschaftsrecht", 60, Pruefungsstatus.NICHT_BESTANDEN, 5.0),
-            ],
-            naechste_pruefung=("Gesellschaftsrecht", 35),
             tage_seit_letztem_login=11,
             logins_letzte_30_tage=3,
         ),
@@ -223,20 +219,10 @@ def fixed_profiles() -> list[Studi]:
             studiengang="Bachelor Wirtschaftsinformatik",
             monate_im_studium=42,
             regelstudienzeit=48,
-            fortschritt_kurse=[
-                ("Programmierung I", 100, True),
-                ("Datenbanken", 100, True),
-                ("IT-Projektmanagement", 100, True),
-                ("Web-Technologien", 100, True),
-                ("Geschäftsprozessmanagement", 85, False),
+            letztes_modul=("Web-Technologien", 60, Modulstatus.BESTANDEN, 2.3),
+            kommende_module=[
+                ("Geschäftsprozessmanagement", -45, 14),
             ],
-            abgeschlossene_pruefungen=[
-                ("Programmierung I", 900, Pruefungsstatus.BESTANDEN, 1.7),
-                ("Datenbanken", 700, Pruefungsstatus.BESTANDEN, 2.0),
-                ("IT-Projektmanagement", 500, Pruefungsstatus.BESTANDEN, 1.3),
-                ("Web-Technologien", 250, Pruefungsstatus.BESTANDEN, 2.3),
-            ],
-            naechste_pruefung=("Geschäftsprozessmanagement", 14),
             tage_seit_letztem_login=2,
             logins_letzte_30_tage=22,
         ),
@@ -247,14 +233,12 @@ def fixed_profiles() -> list[Studi]:
             studiengang="Master Sales Management",
             monate_im_studium=8,
             regelstudienzeit=24,
-            fortschritt_kurse=[
-                ("Strategisches Vertriebsmanagement", 70, False),
-                ("Key Account Management", 25, False),
+            letztes_modul=("Strategisches Vertriebsmanagement", 30, Modulstatus.BESTANDEN, 1.7),
+            kommende_module=[
+                ("Key Account Management", -10, 28),
+                ("Vertriebscontrolling", 30, 90),
+                ("Digital Sales", 90, 150),
             ],
-            abgeschlossene_pruefungen=[
-                ("Strategisches Vertriebsmanagement", 30, Pruefungsstatus.BESTANDEN, 1.7),
-            ],
-            naechste_pruefung=("Key Account Management", 28),
             tage_seit_letztem_login=4,
             logins_letzte_30_tage=6,
         ),
@@ -264,9 +248,10 @@ def fixed_profiles() -> list[Studi]:
 def generate_studi(seed: int | None = None) -> Studi:
     """Generate a single synthetic student.
 
-    The output is internally consistent: graded exams precede today, the
-    next exam (if any) lies in the future, and login counts respect the
-    age of `letzter_login`.
+    The output is internally consistent: das `letztes_modul` (sofern
+    vorhanden) liegt in der Vergangenheit, kommende Module liegen ab
+    heute oder leicht in der Vergangenheit (Modulstart kann vor
+    "heute" liegen, Prüfungstermin liegt aber stets in der Zukunft).
     """
     rng = random.Random(seed)
     fake = Faker("de_DE")
@@ -279,28 +264,32 @@ def generate_studi(seed: int | None = None) -> Studi:
     regelstudienzeit = rng.choice([24, 36, 48])
     monate = rng.randint(1, regelstudienzeit + 6)
 
-    n_abgeschlossen = min(len(module) - 1, max(0, monate // 4))
-    chosen_done = rng.sample(module, k=n_abgeschlossen) if n_abgeschlossen else []
-    abgeschlossene: list[tuple[str, int, Pruefungsstatus, float | None]] = []
-    for modul in chosen_done:
-        tage_zurueck = rng.randint(15, max(16, monate * 30))
+    # Wieviele Module sind laut Studienverlaufsplan schon "durch"?
+    # Studis ganz am Anfang haben evtl. noch gar kein letztes Modul.
+    n_durch = min(len(module) - 1, max(0, monate // 4))
+    letztes: tuple[str, int, Modulstatus, float | None] | None = None
+    if n_durch > 0:
+        letztes_name = module[n_durch - 1]
+        tage_zurueck = rng.randint(15, 180)
         if rng.random() < 0.85:
             note = round(rng.uniform(1.0, 3.7), 1)
-            abgeschlossene.append((modul, tage_zurueck, Pruefungsstatus.BESTANDEN, note))
+            letztes = (letztes_name, tage_zurueck, Modulstatus.BESTANDEN, note)
         else:
-            abgeschlossene.append((modul, tage_zurueck, Pruefungsstatus.NICHT_BESTANDEN, 5.0))
+            letztes = (letztes_name, tage_zurueck, Modulstatus.NICHT_BESTANDEN, 5.0)
 
-    remaining = [m for m in module if m not in chosen_done]
-    naechste: tuple[str, int] | None = None
-    if remaining and rng.random() < 0.8:
-        naechste = (rng.choice(remaining), rng.randint(5, 60))
-
-    fortschritt: list[tuple[str, int, bool]] = []
-    for modul in chosen_done:
-        fortschritt.append((modul, 100, True))
-    for modul in rng.sample(remaining, k=min(3, len(remaining))):
-        pct = rng.randint(5, 90)
-        fortschritt.append((modul, pct, False))
+    # Kommende Module: nimm bis zu drei aus dem verbleibenden Pool.
+    # Beim ersten kommenden Modul ist die Prüfung nahe (5–45 Tage), die
+    # übrigen liegen weiter in der Zukunft.
+    verbleibend = list(module[n_durch:])
+    kommende: list[tuple[str, int | None, int | None]] = []
+    for i, modul_name in enumerate(verbleibend[:3]):
+        if i == 0:
+            tage_start = rng.randint(-30, 0)
+            tage_pruefung = rng.randint(5, 45)
+        else:
+            tage_start = rng.randint(30 * i, 30 * i + 30)
+            tage_pruefung = tage_start + rng.randint(30, 60)
+        kommende.append((modul_name, tage_start, tage_pruefung))
 
     tage_seit_login = rng.choices(
         [0, 1, 2, 5, 9, 14, 30],
@@ -317,9 +306,8 @@ def generate_studi(seed: int | None = None) -> Studi:
         studiengang=studiengang,
         monate_im_studium=monate,
         regelstudienzeit=regelstudienzeit,
-        fortschritt_kurse=fortschritt,
-        abgeschlossene_pruefungen=abgeschlossene,
-        naechste_pruefung=naechste,
+        letztes_modul=letztes,
+        kommende_module=kommende,
         tage_seit_letztem_login=tage_seit_login,
         logins_letzte_30_tage=logins,
     )

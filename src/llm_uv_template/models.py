@@ -5,6 +5,13 @@ the structured messages it returns. Everything that crosses the LLM
 boundary is a Pydantic model so we keep `mypy --strict` happy and so the
 agent's output is validated before it ever reaches a (mocked) Twilio
 client.
+
+Note on data source: Das EAP-System der Euro-FH liefert für den Lern-
+Coach nur das zuletzt abgeschlossene Modul und die laut Studienverlaufs-
+plan kommenden Module. Prozentuale Lernfortschritte oder eine voll-
+ständige Prüfungshistorie sind nicht verfügbar — die Modelle bilden
+genau diesen Ausschnitt ab, damit der Agent nicht halluzinierte Daten
+in seine Empfehlungen einbaut.
 """
 
 from __future__ import annotations
@@ -15,18 +22,25 @@ from enum import StrEnum
 from pydantic import BaseModel, ConfigDict, Field
 
 
-class Pruefungsstatus(StrEnum):
-    GEPLANT = "geplant"
+class Modulstatus(StrEnum):
     BESTANDEN = "bestanden"
     NICHT_BESTANDEN = "nicht_bestanden"
 
 
-class Pruefung(BaseModel):
+class LetztesModul(BaseModel):
+    """Zuletzt abgeschlossenes Modul gemäß EAP-System.
+
+    Das EAP gibt jeweils nur das *jüngste* abgeschlossene Modul preis —
+    keine vollständige Historie. Diese Information dient ausschließlich
+    der Einordnung/Anerkennung; sie darf NICHT als Lern-Empfehlung
+    aufgegriffen werden.
+    """
+
     model_config = ConfigDict(frozen=True)
 
-    modul: str = Field(description="Modulname, z.B. 'Grundlagen der BWL'.")
-    datum: date
-    status: Pruefungsstatus
+    name: str = Field(description="Modulname, z.B. 'Grundlagen der BWL'.")
+    abgeschlossen_am: date
+    status: Modulstatus
     note: float | None = Field(
         default=None,
         ge=1.0,
@@ -35,12 +49,19 @@ class Pruefung(BaseModel):
     )
 
 
-class Kursfortschritt(BaseModel):
+class KommendesModul(BaseModel):
+    """Anstehendes Modul laut Studienverlaufsplan im EAP-System.
+
+    Die Reihenfolge in `Studi.kommende_module` entspricht der geplanten
+    Reihenfolge im Studienverlauf — das erste Element ist also das
+    nächste Modul, das die/der Studierende belegt.
+    """
+
     model_config = ConfigDict(frozen=True)
 
-    modul: str
-    fortschritt_prozent: int = Field(ge=0, le=100)
-    abgeschlossen: bool
+    name: str
+    geplanter_start: date | None = None
+    geplante_pruefung: date | None = None
 
 
 class CampusAktivitaet(BaseModel):
@@ -51,7 +72,11 @@ class CampusAktivitaet(BaseModel):
 
 
 class Studi(BaseModel):
-    """Snapshot of a single student's study situation."""
+    """Snapshot of a single student's study situation.
+
+    Bewusst auf die Felder reduziert, die der EAP-Export tatsächlich
+    liefert. Keine Prüfungshistorie, kein Kursfortschritt in Prozent.
+    """
 
     model_config = ConfigDict(frozen=True)
 
@@ -62,11 +87,9 @@ class Studi(BaseModel):
     studienbeginn: date
     regelstudienzeit_monate: int = Field(ge=12, le=72)
     aktueller_monat_im_studium: int = Field(ge=1)
-    abgeschlossene_pruefungen: list[Pruefung] = Field(default_factory=list)
-    naechste_pruefung: Pruefung | None = None
-    kurse: list[Kursfortschritt] = Field(default_factory=list)
+    letztes_modul: LetztesModul | None = None
+    kommende_module: list[KommendesModul] = Field(default_factory=list)
     campus_aktivitaet: CampusAktivitaet
-    notendurchschnitt: float | None = Field(default=None, ge=1.0, le=5.0)
 
 
 class NachrichtTrigger(StrEnum):

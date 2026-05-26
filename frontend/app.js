@@ -92,22 +92,21 @@ function renderStudentDetail() {
     return;
   }
 
-  const naechste = s.naechste_pruefung
-    ? `${escapeHtml(s.naechste_pruefung.modul)} am ${s.naechste_pruefung.datum}`
-    : "—";
+  const letztes = s.letztes_modul
+    ? `<div><span class="font-medium">${escapeHtml(s.letztes_modul.name)}</span> — ${escapeHtml(s.letztes_modul.status)}${s.letztes_modul.note ? ` (${s.letztes_modul.note})` : ""}</div>
+       <div class="text-xs text-slate-400">abgeschlossen am ${s.letztes_modul.abgeschlossen_am}</div>`
+    : '<p class="text-slate-400">(noch kein Modul abgeschlossen)</p>';
 
-  const abgeschlossen = s.abgeschlossene_pruefungen
-    .map(
-      (p) =>
-        `<li>${escapeHtml(p.modul)} — ${p.status}${p.note ? ` (${p.note})` : ""} <span class="text-slate-400">${p.datum}</span></li>`,
-    )
-    .join("");
-
-  const kurse = s.kurse
-    .map(
-      (k) =>
-        `<li><span class="font-medium">${escapeHtml(k.modul)}</span> — ${k.fortschritt_prozent}%${k.abgeschlossen ? " ✓" : ""}</li>`,
-    )
+  const kommende = s.kommende_module
+    .map((m) => {
+      const start = m.geplanter_start
+        ? `Start ${m.geplanter_start}`
+        : "Start offen";
+      const pruefung = m.geplante_pruefung
+        ? `Prüfung ${m.geplante_pruefung}`
+        : "Prüfung offen";
+      return `<li><span class="font-medium">${escapeHtml(m.name)}</span> <span class="text-slate-500">— ${start}, ${pruefung}</span></li>`;
+    })
     .join("");
 
   container.innerHTML = `
@@ -119,14 +118,13 @@ function renderStudentDetail() {
       <div class="text-right text-xs text-slate-500">
         <div>Studienbeginn: ${s.studienbeginn}</div>
         <div>Monat ${s.aktueller_monat_im_studium} / ${s.regelstudienzeit_monate}</div>
-        ${s.notendurchschnitt ? `<div>⌀ Note: ${s.notendurchschnitt}</div>` : ""}
       </div>
     </div>
     <hr class="my-3 border-slate-200" />
     <div class="grid grid-cols-2 gap-4 text-sm">
       <div>
-        <h3 class="font-semibold mb-1">Nächste Prüfung</h3>
-        <p>${naechste}</p>
+        <h3 class="font-semibold mb-1">Zuletzt abgeschlossenes Modul</h3>
+        ${letztes}
       </div>
       <div>
         <h3 class="font-semibold mb-1">Campus-Aktivität</h3>
@@ -135,13 +133,13 @@ function renderStudentDetail() {
       </div>
     </div>
     <div class="mt-3 text-sm">
-      <h3 class="font-semibold mb-1">Abgeschlossene Prüfungen</h3>
-      <ul class="list-disc list-inside text-slate-700">${abgeschlossen || "<li class='list-none text-slate-400'>(noch keine)</li>"}</ul>
+      <h3 class="font-semibold mb-1">Kommende Module (laut Studienverlaufsplan)</h3>
+      <ul class="list-disc list-inside text-slate-700">${kommende || "<li class='list-none text-slate-400'>(keine kommenden Module hinterlegt)</li>"}</ul>
     </div>
-    <div class="mt-3 text-sm">
-      <h3 class="font-semibold mb-1">Kurs-Fortschritt</h3>
-      <ul class="list-disc list-inside text-slate-700">${kurse || "<li class='list-none text-slate-400'>(keine Kurse erfasst)</li>"}</ul>
-    </div>
+    <p class="mt-3 text-xs text-slate-400">
+      Hinweis: Das EAP-System liefert nur das letzte und die kommenden Module —
+      keine prozentualen Lernfortschritte.
+    </p>
   `;
 }
 
