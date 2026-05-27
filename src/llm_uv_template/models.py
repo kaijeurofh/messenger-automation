@@ -6,12 +6,20 @@ boundary is a Pydantic model so we keep `mypy --strict` happy and so the
 agent's output is validated before it ever reaches a (mocked) Twilio
 client.
 
-Note on data source: Das EAP-System der Euro-FH liefert für den Lern-
-Coach nur das zuletzt abgeschlossene Modul und die laut Studienverlaufs-
-plan kommenden Module. Prozentuale Lernfortschritte oder eine voll-
-ständige Prüfungshistorie sind nicht verfügbar — die Modelle bilden
-genau diesen Ausschnitt ab, damit der Agent nicht halluzinierte Daten
-in seine Empfehlungen einbaut.
+EAP-Sichtbarkeit (Quelle für die Modelle):
+
+* `abgeschlossene_module` — vollständige Historie bestandener und nicht
+  bestandener Module (mit Note und Datum).
+* `aktuelle_module` — die maximal fünf Module, die der/die Studierende
+  aktuell als "in Bearbeitung" gesetzt hat. Das sind die einzigen
+  legitimen Lernziele für den Coach.
+* `studienheft_ereignisse` — Öffnungen und Downloads von Studienheften
+  pro Modul, mit Zeitstempel. Engagement-Signal.
+* `pruefungsanmeldungen` — verbindliche Anmeldungen zu Klausuren mit
+  Anmelde- und Prüfungsdatum.
+
+Lernfortschritte in Prozent liefert EAP weiterhin NICHT — die Modelle
+bilden bewusst nur ab, was die Fachbetreuung wirklich sieht.
 """
 
 from __future__ import annotations
@@ -27,13 +35,18 @@ class Modulstatus(StrEnum):
     NICHT_BESTANDEN = "nicht_bestanden"
 
 
-class LetztesModul(BaseModel):
-    """Zuletzt abgeschlossenes Modul gemäß EAP-System.
+class StudienheftAktion(StrEnum):
+    GEOEFFNET = "geoeffnet"
+    HERUNTERGELADEN = "heruntergeladen"
 
-    Das EAP gibt jeweils nur das *jüngste* abgeschlossene Modul preis —
-    keine vollständige Historie. Diese Information dient ausschließlich
-    der Einordnung/Anerkennung; sie darf NICHT als Lern-Empfehlung
-    aufgegriffen werden.
+
+class AbgeschlossenesModul(BaseModel):
+    """Ein Modul, dessen Klausur bereits geschrieben wurde.
+
+    `status == BESTANDEN` heißt: das Modul ist endgültig durch und darf
+    NIE wieder als Lernziel empfohlen werden.
+    `status == NICHT_BESTANDEN` heißt: ggf. als Wiederholung erneut
+    aktiv — taucht dann zusätzlich in `Studi.aktuelle_module` auf.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -49,19 +62,39 @@ class LetztesModul(BaseModel):
     )
 
 
-class KommendesModul(BaseModel):
-    """Anstehendes Modul laut Studienverlaufsplan im EAP-System.
+class AktuellesModul(BaseModel):
+    """Ein vom Studi aktuell zur Bearbeitung gewähltes Modul.
 
-    Die Reihenfolge in `Studi.kommende_module` entspricht der geplanten
-    Reihenfolge im Studienverlauf — das erste Element ist also das
-    nächste Modul, das die/der Studierende belegt.
+    EAP erlaubt maximal fünf parallele Slots — siehe `Studi.aktuelle_module`.
     """
 
     model_config = ConfigDict(frozen=True)
 
     name: str
-    geplanter_start: date | None = None
-    geplante_pruefung: date | None = None
+    belegt_seit: date | None = Field(
+        default=None,
+        description="Wann der Studi das Modul in den Slots aktiviert hat.",
+    )
+
+
+class StudienheftEreignis(BaseModel):
+    """EAP meldet, wenn ein Studienheft geöffnet oder heruntergeladen wird."""
+
+    model_config = ConfigDict(frozen=True)
+
+    modul: str
+    aktion: StudienheftAktion
+    zeitpunkt: datetime
+
+
+class Pruefungsanmeldung(BaseModel):
+    """Verbindliche Klausur-Anmeldung mit Anmelde- und Prüfungsdatum."""
+
+    model_config = ConfigDict(frozen=True)
+
+    modul: str
+    pruefungstermin: date
+    angemeldet_am: date
 
 
 class CampusAktivitaet(BaseModel):
@@ -74,8 +107,8 @@ class CampusAktivitaet(BaseModel):
 class Studi(BaseModel):
     """Snapshot of a single student's study situation.
 
-    Bewusst auf die Felder reduziert, die der EAP-Export tatsächlich
-    liefert. Keine Prüfungshistorie, kein Kursfortschritt in Prozent.
+    Bewusst auf die Felder beschränkt, die der EAP-Export tatsächlich
+    liefert. Keine prozentualen Lernfortschritte.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -87,8 +120,20 @@ class Studi(BaseModel):
     studienbeginn: date
     regelstudienzeit_monate: int = Field(ge=12, le=72)
     aktueller_monat_im_studium: int = Field(ge=1)
-    letztes_modul: LetztesModul | None = None
-    kommende_module: list[KommendesModul] = Field(default_factory=list)
+    abgeschlossene_module: list[AbgeschlossenesModul] = Field(default_factory=list)
+    aktuelle_module: list[AktuellesModul] = Field(
+        default_factory=list,
+        max_length=5,
+        description="Max. fünf parallel belegte Module (EAP-Constraint).",
+    )
+    studienheft_ereignisse: list[StudienheftEreignis] = Field(
+        default_factory=list,
+        description=(
+            "Chronologisch letzte Studienheft-Aktionen. Engagement-Signal — "
+            "keine vollständige Historie, sondern jüngste relevante Ereignisse."
+        ),
+    )
+    pruefungsanmeldungen: list[Pruefungsanmeldung] = Field(default_factory=list)
     campus_aktivitaet: CampusAktivitaet
 
 

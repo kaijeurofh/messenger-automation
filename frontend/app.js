@@ -92,22 +92,47 @@ function renderStudentDetail() {
     return;
   }
 
-  const letztes = s.letztes_modul
-    ? `<div><span class="font-medium">${escapeHtml(s.letztes_modul.name)}</span> — ${escapeHtml(s.letztes_modul.status)}${s.letztes_modul.note ? ` (${s.letztes_modul.note})` : ""}</div>
-       <div class="text-xs text-slate-400">abgeschlossen am ${s.letztes_modul.abgeschlossen_am}</div>`
-    : '<p class="text-slate-400">(noch kein Modul abgeschlossen)</p>';
-
-  const kommende = s.kommende_module
+  const abgeschlossen = (s.abgeschlossene_module || [])
+    .slice()
+    .sort((a, b) => b.abgeschlossen_am.localeCompare(a.abgeschlossen_am))
     .map((m) => {
-      const start = m.geplanter_start
-        ? `Start ${m.geplanter_start}`
-        : "Start offen";
-      const pruefung = m.geplante_pruefung
-        ? `Prüfung ${m.geplante_pruefung}`
-        : "Prüfung offen";
-      return `<li><span class="font-medium">${escapeHtml(m.name)}</span> <span class="text-slate-500">— ${start}, ${pruefung}</span></li>`;
+      const statusBadge =
+        m.status === "bestanden"
+          ? '<span class="text-emerald-700">bestanden</span>'
+          : '<span class="text-rose-700">nicht bestanden</span>';
+      return `<li><span class="font-medium">${escapeHtml(m.name)}</span> — ${statusBadge}${m.note ? ` (${m.note})` : ""} <span class="text-slate-400">am ${m.abgeschlossen_am}</span></li>`;
     })
     .join("");
+
+  const aktuelle = (s.aktuelle_module || [])
+    .map((m) => {
+      const seit = m.belegt_seit ? `belegt seit ${m.belegt_seit}` : "belegt";
+      return `<li><span class="font-medium">${escapeHtml(m.name)}</span> <span class="text-slate-500">— ${seit}</span></li>`;
+    })
+    .join("");
+
+  const anmeldungen = (s.pruefungsanmeldungen || [])
+    .slice()
+    .sort((a, b) => a.pruefungstermin.localeCompare(b.pruefungstermin))
+    .map(
+      (p) =>
+        `<li><span class="font-medium">${escapeHtml(p.modul)}</span> — Klausur am ${p.pruefungstermin} <span class="text-slate-400">(angemeldet ${p.angemeldet_am})</span></li>`,
+    )
+    .join("");
+
+  const ereignisse = (s.studienheft_ereignisse || [])
+    .slice()
+    .sort((a, b) => b.zeitpunkt.localeCompare(a.zeitpunkt))
+    .slice(0, 8)
+    .map((e) => {
+      const zp = new Date(e.zeitpunkt).toLocaleString();
+      const verb =
+        e.aktion === "heruntergeladen" ? "heruntergeladen" : "geöffnet";
+      return `<li><span class="text-slate-400">${zp}</span> — ${escapeHtml(e.modul)} <span class="text-slate-500">(${verb})</span></li>`;
+    })
+    .join("");
+
+  const slotsBenutzt = (s.aktuelle_module || []).length;
 
   container.innerHTML = `
     <div class="flex items-start justify-between">
@@ -123,8 +148,8 @@ function renderStudentDetail() {
     <hr class="my-3 border-slate-200" />
     <div class="grid grid-cols-2 gap-4 text-sm">
       <div>
-        <h3 class="font-semibold mb-1">Zuletzt abgeschlossenes Modul</h3>
-        ${letztes}
+        <h3 class="font-semibold mb-1">Aktuelle Module <span class="text-xs text-slate-400">(${slotsBenutzt}/5 Slots)</span></h3>
+        <ul class="list-disc list-inside text-slate-700">${aktuelle || "<li class='list-none text-slate-400'>(keine aktiven Module)</li>"}</ul>
       </div>
       <div>
         <h3 class="font-semibold mb-1">Campus-Aktivität</h3>
@@ -133,12 +158,21 @@ function renderStudentDetail() {
       </div>
     </div>
     <div class="mt-3 text-sm">
-      <h3 class="font-semibold mb-1">Kommende Module (laut Studienverlaufsplan)</h3>
-      <ul class="list-disc list-inside text-slate-700">${kommende || "<li class='list-none text-slate-400'>(keine kommenden Module hinterlegt)</li>"}</ul>
+      <h3 class="font-semibold mb-1">Prüfungsanmeldungen</h3>
+      <ul class="list-disc list-inside text-slate-700">${anmeldungen || "<li class='list-none text-slate-400'>(keine Anmeldungen)</li>"}</ul>
+    </div>
+    <div class="mt-3 text-sm">
+      <h3 class="font-semibold mb-1">Letzte Studienheft-Aktivität</h3>
+      <ul class="list-disc list-inside text-slate-700">${ereignisse || "<li class='list-none text-slate-400'>(noch keine Aktivität)</li>"}</ul>
+    </div>
+    <div class="mt-3 text-sm">
+      <h3 class="font-semibold mb-1">Abgeschlossene Module</h3>
+      <ul class="list-disc list-inside text-slate-700">${abgeschlossen || "<li class='list-none text-slate-400'>(noch keine abgeschlossen)</li>"}</ul>
     </div>
     <p class="mt-3 text-xs text-slate-400">
-      Hinweis: Das EAP-System liefert nur das letzte und die kommenden Module —
-      keine prozentualen Lernfortschritte.
+      EAP liefert: abgeschlossene Module, max. 5 aktive Slots,
+      Studienheft-Ereignisse, Prüfungsanmeldungen — keine prozentualen
+      Lernfortschritte.
     </p>
   `;
 }

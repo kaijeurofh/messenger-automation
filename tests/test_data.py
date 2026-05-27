@@ -1,12 +1,16 @@
 """Tests for the synthetic data layer.
 
-Locks down two invariants we care about for the frontend demo:
+Locks down die Invarianten, die für den Coach kritisch sind:
 
-* Fixed profiles are stable, distinct, and internally consistent.
-* The Faker-backed generator is reproducible under a seed and produces
-  data the messaging agent can actually reason over: ein optionales
-  ``letztes_modul`` in der Vergangenheit und kommende Module, deren
-  Prüfungstermine in der Zukunft liegen.
+* Fixed profiles sind stabil, eindeutig und konsistent.
+* Generator ist seed-reproduzierbar.
+* EAP-Constraint: max. 5 aktuelle Module.
+* Empfehlungs-Sicherheit: ein *bestandenes* Modul taucht nie in den
+  aktuellen Modulen auf (sonst würde der Agent es als Lernziel sehen).
+* Wiederholungen dürfen das, weil sie aktiv wieder belegt sind.
+* Prüfungsanmeldungen referenzieren nur aktive Module.
+* Studienheft-Ereignisse liegen in der Vergangenheit und referenzieren
+  ein aktuelles Modul.
 """
 
 from __future__ import annotations
@@ -31,38 +35,54 @@ def test_fixed_profile_internal_consistency() -> None:
     today = date.today()
     for studi in fixed_profiles():
         assert studi.studienbeginn <= today
-        if studi.letztes_modul is not None:
-            assert studi.letztes_modul.abgeschlossen_am <= today
-            assert studi.letztes_modul.status in {
-                Modulstatus.BESTANDEN,
-                Modulstatus.NICHT_BESTANDEN,
-            }
-        for modul in studi.kommende_module:
-            if modul.geplante_pruefung is not None:
-                assert modul.geplante_pruefung >= today, (
-                    f"Geplante Prüfung für {modul.name} darf nicht in der "
-                    f"Vergangenheit liegen ({modul.geplante_pruefung})."
-                )
+        assert len(studi.aktuelle_module) <= 5
+        for am in studi.abgeschlossene_module:
+            assert am.abgeschlossen_am <= today
+            assert am.status in {Modulstatus.BESTANDEN, Modulstatus.NICHT_BESTANDEN}
+        for ereignis in studi.studienheft_ereignisse:
+            assert ereignis.zeitpunkt.date() <= today, (
+                f"Studienheft-Ereignis {ereignis} liegt in der Zukunft"
+            )
+        for anmeldung in studi.pruefungsanmeldungen:
+            assert anmeldung.angemeldet_am <= today
         assert 0 <= studi.campus_aktivitaet.logins_letzte_30_tage <= 30
 
 
-def test_fixed_profile_letztes_modul_not_in_kommende() -> None:
-    """Kern-Invariante: das letzte (= bestandene/abgeschlossene) Modul
-    darf nicht gleichzeitig in den kommenden Modulen auftauchen, sonst
-    würde der Agent es als Lern-Empfehlung aufgreifen können."""
+def test_fixed_profile_bestandene_module_not_active() -> None:
+    """Kern-Invariante: ein bestandenes Modul darf nicht zugleich aktiv
+    belegt sein — sonst empfiehlt der Agent Lernen für eine bereits
+    abgehakte Prüfung."""
     for studi in fixed_profiles():
-        if studi.letztes_modul is None:
-            continue
-        if studi.letztes_modul.status != Modulstatus.BESTANDEN:
-            # Ein nicht bestandenes Modul *darf* als Wiederholung wieder
-            # in `kommende_module` stehen — das ist der ganze Sinn der
-            # Wiederholungsregel.
-            continue
-        kommende_namen = {m.name for m in studi.kommende_module}
-        assert studi.letztes_modul.name not in kommende_namen, (
-            f"{studi.id}: bestandenes Modul {studi.letztes_modul.name!r} "
-            f"darf nicht erneut in kommende_module stehen."
+        bestandene = {
+            am.name for am in studi.abgeschlossene_module if am.status == Modulstatus.BESTANDEN
+        }
+        aktive = {m.name for m in studi.aktuelle_module}
+        assert bestandene.isdisjoint(aktive), (
+            f"{studi.id}: bestandene Module {bestandene & aktive} dürfen "
+            f"nicht in aktuelle_module stehen."
         )
+
+
+def test_fixed_profile_pruefungsanmeldungen_reference_active_modules() -> None:
+    """Anmeldungen können nur für Module bestehen, die der Studi auch
+    belegt hat — sonst wäre die Datenlage inkonsistent."""
+    for studi in fixed_profiles():
+        aktive = {m.name for m in studi.aktuelle_module}
+        for anmeldung in studi.pruefungsanmeldungen:
+            assert anmeldung.modul in aktive, (
+                f"{studi.id}: Anmeldung für {anmeldung.modul!r} ohne entsprechendes aktives Modul."
+            )
+
+
+def test_fixed_profile_studienheft_events_reference_active_modules() -> None:
+    """Studienheft-Aktivität gibt es nur für aktiv belegte Module."""
+    for studi in fixed_profiles():
+        aktive = {m.name for m in studi.aktuelle_module}
+        for ereignis in studi.studienheft_ereignisse:
+            assert ereignis.modul in aktive, (
+                f"{studi.id}: Studienheft-Ereignis für {ereignis.modul!r} "
+                f"ohne entsprechendes aktives Modul."
+            )
 
 
 def test_generate_studi_is_seeded_reproducible() -> None:
@@ -74,25 +94,37 @@ def test_generate_studi_is_seeded_reproducible() -> None:
 def test_generate_studi_internal_consistency() -> None:
     today = date.today()
     studi = generate_studi(seed=7)
-    if studi.letztes_modul is not None:
-        assert studi.letztes_modul.abgeschlossen_am < today
-    for modul in studi.kommende_module:
-        if modul.geplante_pruefung is not None:
-            assert modul.geplante_pruefung > today
+    assert len(studi.aktuelle_module) <= 5
+    for am in studi.abgeschlossene_module:
+        assert am.abgeschlossen_am < today
+    for ereignis in studi.studienheft_ereignisse:
+        assert ereignis.zeitpunkt.date() <= today
+    for anmeldung in studi.pruefungsanmeldungen:
+        assert anmeldung.angemeldet_am <= today
 
 
-def test_generate_studi_does_not_recycle_letztes_modul() -> None:
-    """Generierte Profile dürfen das letzte Modul nicht als kommendes
-    Modul wiederverwenden — sonst empfiehlt der Agent Lernen für eine
-    bereits bestandene Prüfung."""
+def test_generate_studi_bestandene_module_not_active() -> None:
+    """Generierte Profile dürfen ein bestandenes Modul nicht als aktiv
+    belegt führen — sonst empfiehlt der Agent Lernen für bereits
+    bestandene Prüfungen."""
     for seed in range(20):
         studi = generate_studi(seed=seed)
-        if studi.letztes_modul is None:
-            continue
-        if studi.letztes_modul.status != Modulstatus.BESTANDEN:
-            continue
-        kommende_namen = {m.name for m in studi.kommende_module}
-        assert studi.letztes_modul.name not in kommende_namen
+        bestandene = {
+            am.name for am in studi.abgeschlossene_module if am.status == Modulstatus.BESTANDEN
+        }
+        aktive = {m.name for m in studi.aktuelle_module}
+        assert bestandene.isdisjoint(aktive), (
+            f"seed={seed}: bestandene Module {bestandene & aktive} "
+            f"dürfen nicht in aktuelle_module stehen."
+        )
+
+
+def test_generate_studi_anmeldungen_only_for_active_modules() -> None:
+    for seed in range(20):
+        studi = generate_studi(seed=seed)
+        aktive = {m.name for m in studi.aktuelle_module}
+        for anmeldung in studi.pruefungsanmeldungen:
+            assert anmeldung.modul in aktive
 
 
 def test_generate_studis_returns_requested_count() -> None:
